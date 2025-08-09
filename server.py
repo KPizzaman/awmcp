@@ -1,58 +1,111 @@
 import json
-from pathlib import Path
-from dataclasses import dataclass
+from typing import Dict, Optional
+
+import httpx
 from fastmcp import FastMCP
 
-@dataclass
-class Record:
-    id: str
-    title: str
-    text: str
-    metadata: dict
+# cache of search results so fetch can return full data
+SEARCH_CACHE: Dict[str, dict] = {}
 
 def create_server(
-    records_path: Path | str,
-    name: str | None = None,
-    instructions: str | None = None,
+    base_url: str = "http://localhost:5600/api/0",
+    name: Optional[str] = None,
+    instructions: Optional[str] = None,
 ) -> FastMCP:
-    """Create a FastMCP server that can search and fetch records from a JSON file."""
-    records = json.loads(Path(records_path).read_text())
+    """Create a FastMCP server exposing ActivityWatch search and fetch tools."""
 
-    RECORDS = [Record(**r) for r in records]
-    LOOKUP = {r.id: r for r in RECORDS}
-
-    mcp = FastMCP(name=name or "Deep Research MCP", instructions=instructions)
+    mcp = FastMCP(
+        name=name or "ActivityWatch MCP",
+        instructions=instructions or "Search and fetch ActivityWatch window events.",
+    )
 
     @mcp.tool()
-    async def search(query: str):
-        """
-        Simple unranked keyword search across title, text, and metadata.
-        Searches for any of the query terms in the record content.
-        Returns a list of matching record IDs for ChatGPT to fetch.
-        """
-        toks = query.lower().split()
-        ids = []
-        for r in RECORDS:
-            record_txt = " ".join(
-                [r.title, r.text, " ".join(r.metadata.values())]
-            ).lower()
-            if any(t in record_txt for t in toks):
-                ids.append(r.id)
+    async def search(query: str, limit: int = 5, cursor: Optional[str] = None):
+        """Search window events by title using ActivityWatch."""
+        offset = int(cursor) if cursor else 0
+        matches: list[dict] = []
+        try:
+            async with httpx.AsyncClient(base_url=base_url) as client:
+                resp = await client.get("/buckets")
+                resp.raise_for_status()
+                buckets = [
+                    bid
+                    for bid, data in resp.json().items()
+                    if data.get("type") == "aw-watcher-window"
+                ]
+                for bucket_id in buckets:
+                    ev_resp = await client.get(
+                        f"/buckets/{bucket_id}/events", params={"limit": 500}
+                    )
+                    ev_resp.raise_for_status()
+                    for ev in ev_resp.json():
+                        title = ev.get("data", {}).get("title", "")
+                        if query.lower() in title.lower():
+                            result_id = f"{bucket_id}:{ev['timestamp']}"
+                            SEARCH_CACHE[result_id] = {"bucket": bucket_id, "event": ev}
+                            matches.append(
+                                {
+                                    "id": result_id,
+                                    "title": title,
+                                    "url": f"activitywatch://{bucket_id}/{ev['timestamp']}",
+                                }
+                            )
+        except httpx.HTTPError as e:
+            return {
+                "content": [{"type": "text", "text": f"Search failed: {e}"}],
+                "isError": True,
+            }
 
-        return {"ids": ids}
+        paginated = matches[offset : offset + limit]
+        next_cursor = str(offset + limit) if offset + limit < len(matches) else None
+        return {"results": paginated, "next_cursor": next_cursor}
 
     @mcp.tool()
     async def fetch(id: str):
-        """
-        Fetch a record by ID.
-        Returns the complete record data for ChatGPT to analyze and cite.
-        """
-        if id not in LOOKUP:
-            raise ValueError(f"Unknown record ID: {id}")
-        return LOOKUP[id]
+        """Fetch full event JSON for a search result."""
+        data = SEARCH_CACHE.get(id)
+        if data is None:
+            try:
+                bucket, ts = id.split(":", 1)
+            except ValueError:
+                return {
+                    "content": [{"type": "text", "text": "Invalid id"}],
+                    "isError": True,
+                }
+            try:
+                async with httpx.AsyncClient(base_url=base_url) as client:
+                    resp = await client.get(
+                        f"/buckets/{bucket}/events", params={"start": ts, "end": ts}
+                    )
+                    resp.raise_for_status()
+                    events = resp.json()
+                    if not events:
+                        return {
+                            "content": [
+                                {"type": "text", "text": "Event not found"}
+                            ],
+                            "isError": True,
+                        }
+                    ev = events[0]
+            except httpx.HTTPError as e:
+                return {
+                    "content": [{"type": "text", "text": f"Fetch failed: {e}"}],
+                    "isError": True,
+                }
+        else:
+            bucket = data["bucket"]
+            ev = data["event"]
+
+        return {
+            "id": id,
+            "title": ev.get("data", {}).get("title", ""),
+            "url": f"activitywatch://{bucket}/{ev['timestamp']}",
+            "content": [{"type": "text", "text": json.dumps(ev, indent=2)}],
+        }
 
     return mcp
 
+
 if __name__ == "__main__":
-    mcp = create_server("path/to/records.json")
-    mcp.run(transport="http", port=3344)
+    server = create_server()
+    server.run(transport="http", port=3000)

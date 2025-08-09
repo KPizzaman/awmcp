@@ -1,6 +1,7 @@
 # ActivityWatch MCP Server
 
-This repository provides a [Model Context Protocol](https://platform.openai.com/docs/mcp) server that exposes your local [ActivityWatch](https://activitywatch.net/) data to ChatGPT.
+This repository provides a [Model Context Protocol](https://platform.openai.com/docs/mcp) server that exposes your local [ActivityWatch](https://activitywatch.net/) data to ChatGPT using the official [`aw-client`](https://github.com/ActivityWatch/aw-client) library.
+
 
 ## Tools
 - **search** – find window events whose titles match a query
@@ -22,7 +23,7 @@ pip install -r requirements.txt
 Run the MCP server:
 
 ```bash
-python server.py
+python server.py [--aw-host HOST] [--aw-port PORT] [--port MCP_PORT] [--debug]
 ```
 
-The server listens on `http://localhost:3000`. Configure ChatGPT to connect to this endpoint as an MCP server and use the `search` and `fetch` tools to query your ActivityWatch data.
+The server listens on `http://localhost:3000` by default. Configure ChatGPT to connect to this endpoint as an MCP server and use the `search` and `fetch` tools to query your ActivityWatch data. Passing `--debug` will print tool inputs and outputs so you can see exactly what ChatGPT receives.

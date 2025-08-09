@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from aw_client.client import ActivityWatchClient
+
 from fastmcp import FastMCP
 
 # cache of search results so fetch can return full data
@@ -26,6 +27,7 @@ def create_server(
     )
 
     client = ActivityWatchClient("aw-mcp", host=aw_host, port=aw_port)
+
 
     @mcp.tool()
     async def search(query: str, limit: int = 5, cursor: Optional[str] = None):
@@ -55,6 +57,7 @@ def create_server(
                             }
                         )
         except Exception as e:
+
             return {
                 "content": [{"type": "text", "text": f"Search failed: {e}"}],
                 "isError": True,
@@ -95,12 +98,14 @@ def create_server(
                         "isError": True,
                     }
                 ev = events[0].to_json_dict()
+
             except ValueError:
                 return {
                     "content": [{"type": "text", "text": "Invalid id"}],
                     "isError": True,
                 }
             except Exception as e:
+
                 return {
                     "content": [{"type": "text", "text": f"Fetch failed: {e}"}],
                     "isError": True,
@@ -110,6 +115,7 @@ def create_server(
             ev = data["event"]
 
         result = {
+
             "id": id,
             "title": ev.get("data", {}).get("title", ""),
             "url": f"activitywatch://{bucket}/{ev['timestamp']}",
@@ -128,6 +134,7 @@ def create_server(
             )
         return result
 
+
     return mcp
 
 
@@ -145,3 +152,4 @@ if __name__ == "__main__":
         aw_host=args.aw_host, aw_port=args.aw_port, debug=args.debug
     )
     server.run(transport="http", port=args.port)
+

@@ -2,6 +2,7 @@
 
 This repository provides a [Model Context Protocol](https://platform.openai.com/docs/mcp) server that exposes your local [ActivityWatch](https://activitywatch.net/) data to ChatGPT using the official [`aw-client`](https://github.com/ActivityWatch/aw-client) library.
 
+
 ## Tools
 - **search** – find window events whose titles match a query
 - **fetch** – retrieve the full JSON for a result returned by `search`
